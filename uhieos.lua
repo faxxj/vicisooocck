@@ -131,12 +131,26 @@ local function filterStock(dataArray)
     return filtered
 end
 
+local function tableToFilteredObject(dataArray)
+    local obj = {}
+    for _, line in ipairs(dataArray) do
+        local name, stock = line:match("^(.-)%s*=%s*X(%d+)%s*Stock$")
+        if name and stock then
+            local numStock = tonumber(stock)
+            if numStock > 0 then
+                obj[name] = numStock
+            end
+        end
+    end
+    return obj
+end
+
 local function sendToAPI(seedData, gearData, petData, eventData)
     local payload = {
-        seed_stock = filterStock(seedData),
-        gear_stock = filterStock(gearData),
-        pet_stock = filterStock(petData),
-        event_stock = filterStock(eventData)
+        seed_stock = tableToFilteredObject(seedData),
+        gear_stock = tableToFilteredObject(gearData),
+        pet_stock = tableToFilteredObject(petData),
+        event_stock = tableToFilteredObject(eventData)
     }
     http_request({
         Url = "https://fruit-api-rho.vercel.app/api/stock",
@@ -144,7 +158,7 @@ local function sendToAPI(seedData, gearData, petData, eventData)
         Headers = { ["Content-Type"] = "application/json" },
         Body = HttpService:JSONEncode(payload)
     })
-    print("✅ Data terkirim ke API (filtered)")
+    print("✅ Data terkirim ke API (filtered object)")
 end
 
 task.spawn(function()
