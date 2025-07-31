@@ -69,6 +69,7 @@ minimizeBtn.MouseButton1Click:Connect(function()
     mainFrame.Size = isMinimized and UDim2.new(0, 400, 0, 30) or UDim2.new(0, 400, 0, 400)
 end)
 
+-- Fungsi untuk menambah teks ke console
 local function addLine(text)
     local line = Instance.new("TextLabel")
     line.Size = UDim2.new(1, 0, 0, 20)
@@ -88,69 +89,40 @@ local function clearLines()
     end
 end
 
--- Fungsi ambil stock untuk shop apa saja
-local function getStockFromShop(shopName)
+-- Ambil stock dari shop dengan filter stock > 0
+local function getFilteredStock(shopName)
     local shopGui = player:WaitForChild("PlayerGui"):FindFirstChild(shopName, true)
+    local filtered = {}
     if shopGui then
         local frame = shopGui:FindFirstChildWhichIsA("ScrollingFrame", true)
         if frame then
-            local data = {}
             for _, child in ipairs(frame:GetChildren()) do
                 if child:IsA("Frame") and not child.Name:match("_Padding$") then
                     local name = child.Name
                     local stockLabel = child:FindFirstChild("Stock_Text", true)
-                    local stock = "?"
                     if stockLabel and stockLabel:IsA("TextLabel") then
-                        stock = stockLabel.Text
+                        local stock = tonumber(stockLabel.Text:match("X(%d+)"))
+                        if stock and stock > 0 then
+                            table.insert(filtered, { name = name, stock = stock })
+                        end
                     end
-                    table.insert(data, name .. " = " .. stock)
                 end
             end
-            return data
-        end
-    end
-    return {}
-end
-
--- Previous data untuk deteksi perubahan
-local prev = {
-    seed = {},
-    gear = {},
-    pet = {},
-    event = {}
-}
-
-local function filterStock(dataArray)
-    local filtered = {}
-    for _, line in ipairs(dataArray) do
-        local name, stock = line:match("^(.-)%s*=%s*X(%d+)%s*Stock$")
-        if name and stock and tonumber(stock) > 0 then
-            table.insert(filtered, name .. " = X" .. stock .. " Stock")
         end
     end
     return filtered
 end
 
-local function tableToFilteredObject(dataArray)
-    local obj = {}
-    for _, line in ipairs(dataArray) do
-        local name, stock = line:match("^(.-)%s*=%s*X(%d+)%s*Stock$")
-        if name and stock then
-            local numStock = tonumber(stock)
-            if numStock > 0 then
-                obj[name] = numStock
-            end
-        end
-    end
-    return obj
-end
+-- Previous data
+local prev = { seed = {}, gear = {}, pet = {}, event = {} }
 
-local function sendToAPI(seedData, gearData, petData, eventData)
+-- Kirim ke API
+local function sendToAPI(seed, gear, pet, event)
     local payload = {
-        seed_stock = tableToFilteredObject(seedData),
-        gear_stock = tableToFilteredObject(gearData),
-        pet_stock = tableToFilteredObject(petData),
-        event_stock = tableToFilteredObject(eventData)
+        seed_stock = seed,
+        gear_stock = gear,
+        pet_stock = pet,
+        event_stock = event
     }
     http_request({
         Url = "https://fruit-api-rho.vercel.app/api/stock",
@@ -158,45 +130,47 @@ local function sendToAPI(seedData, gearData, petData, eventData)
         Headers = { ["Content-Type"] = "application/json" },
         Body = HttpService:JSONEncode(payload)
     })
-    print("✅ Data terkirim ke API (filtered object)")
+    print("✅ Data terkirim ke API (filtered)")
 end
 
+-- Loop pengecekan
 task.spawn(function()
     while true do
-        local seedData = getStockFromShop("Seed_Shop")
-        local gearData = getStockFromShop("Gear_Shop")
-        local petData = getStockFromShop("PetShop_UI")
-        local eventData = getStockFromShop("EventShop_UI")
-        
-        -- Cek perubahan
-        local changed = (#seedData ~= #prev.seed) or (#gearData ~= #prev.gear) or 
-                        (#petData ~= #prev.pet) or (#eventData ~= #prev.event)
-        
-        if not changed then
-            for i = 1, #seedData do if seedData[i] ~= prev.seed[i] then changed = true break end end
-            for i = 1, #gearData do if gearData[i] ~= prev.gear[i] then changed = true break end end
-            for i = 1, #petData do if petData[i] ~= prev.pet[i] then changed = true break end end
-            for i = 1, #eventData do if eventData[i] ~= prev.event[i] then changed = true break end end
-        end
-        
+        local seedData = getFilteredStock("Seed_Shop")
+        local gearData = getFilteredStock("Gear_Shop")
+        local petData = getFilteredStock("PetShop_UI")
+        local eventData = getFilteredStock("EventShop_UI")
+
+        local changed = HttpService:JSONEncode(seedData) ~= HttpService:JSONEncode(prev.seed)
+            or HttpService:JSONEncode(gearData) ~= HttpService:JSONEncode(prev.gear)
+            or HttpService:JSONEncode(petData) ~= HttpService:JSONEncode(prev.pet)
+            or HttpService:JSONEncode(eventData) ~= HttpService:JSONEncode(prev.event)
+
         if changed then
             clearLines()
             addLine("🌱 Seed Shop:")
-            for _, line in ipairs(seedData) do addLine(line) end
-            
+            for _, item in ipairs(seedData) do addLine(item.name .. " = X" .. item.stock .. " Stock") end
+
             addLine("⚙️ Gear Shop:")
-            for _, line in ipairs(gearData) do addLine(line) end
-            
+            for _, item in ipairs(gearData) do addLine(item.name .. " = X" .. item.stock .. " Stock") end
+
             addLine("🐾 Pet Shop:")
-            for _, line in ipairs(petData) do addLine(line) end
-            
+            for _, item in ipairs(petData) do addLine(item.name .. " = X" .. item.stock .. " Stock") end
+
             addLine("🎉 Event Shop:")
-            for _, line in ipairs(eventData) do addLine(line) end
-            
+            for _, item in ipairs(eventData) do addLine(item.name .. " = X" .. item.stock .. " Stock") end
+
             prev.seed, prev.gear, prev.pet, prev.event = seedData, gearData, petData, eventData
-            sendToAPI(seedData, gearData, petData, eventData)
+
+            -- Kirim data dalam bentuk object
+            local function toObj(data)
+                local obj = {}
+                for _, v in ipairs(data) do obj[v.name] = v.stock end
+                return obj
+            end
+            sendToAPI(toObj(seedData), toObj(gearData), toObj(petData), toObj(eventData))
         end
-        
+
         wait(5)
     end
 end)
